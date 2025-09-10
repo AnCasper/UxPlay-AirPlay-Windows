@@ -84,6 +84,13 @@
   #define DEFAULT_SRGB_FIX false
 #endif
 
+// NEW! Del if broked
+#ifdef _WIN32
+#include <gst/gst.h>
+#endif
+static int audio_ts_offset_ms = 0;
+// END NEW
+
 static std::string server_name = DEFAULT_NAME;
 static dnssd_t *dnssd = NULL;
 static raop_t *raop = NULL;
@@ -715,7 +722,8 @@ static void print_info (char *name) {
     printf("          osssink,oss4sink,osxaudiosink,wasapisink,directsoundsink.\n");
     printf("-as 0     (or -a)  Turn audio off, streamed video only\n");
     printf("-al x     Audio latency in seconds (default 0.25) reported to client.\n");
-    printf("-ca [<fn>]In Audio (ALAC) mode, render cover-art [or write to file <fn>]\n");
+    printf("-aoffset m  Extra audio timestamp offset in milliseconds (can be negative)\n");
+	printf("-ca [<fn>]In Audio (ALAC) mode, render cover-art [or write to file <fn>]\n");
     printf("-md <fn>  In Airplay Audio (ALAC) mode, write metadata text to file <fn>\n");
     printf("-reset n  Reset after n seconds of client silence (default n=%d, 0=never)\n", MISSED_FEEDBACK_LIMIT);
     printf("-nofreeze Do NOT leave frozen screen in place after reset\n");
@@ -933,7 +941,10 @@ static void parse_arguments (int argc, char *argv[]) {
                     }
                 }
             }
-        } else if (arg == "-vsync") {
+        } else if (!strcmp(argv[i], "-aoffset") && i + 1 < argc) {
+			audio_ts_offset_ms = atoi(argv[++i]); // allow negative values
+		} 
+		else if (arg == "-vsync") {
             video_sync = true;
 	    if (i <  argc - 1) {
                 if (strlen(argv[i+1]) == 2 && strncmp(argv[i+1], "no", 2) == 0) {
@@ -2529,9 +2540,23 @@ int main (int argc, char *argv[]) {
     logger_set_callback(render_logger, log_callback, NULL);
     logger_set_level(render_logger, log_level);
 
+	#ifdef _WIN32
+		/* Apply manual audio time-shift: -aoffset <ms>  (negative = play earlier) */
+		if (audio_ts_offset_ms != 0) {
+			// Append ts-offset (ns) to audiosink string so GStreamer sees it.
+			// Example result: "wasapisink ts-offset=-110000000"
+			char tsopt[64];
+			long long ns = (long long)audio_ts_offset_ms * 1000000LL;
+			snprintf(tsopt, sizeof(tsopt), " ts-offset=%lld", ns);
+			audiosink.append(tsopt);
+
+			LOGI("Audio sink using %s (ts-offset %d ms)", audiosink.c_str(), audio_ts_offset_ms);
+		}
+	#endif
+
     if (use_audio) {
       audio_renderer_init(render_logger, audiosink.c_str(), &audio_sync, &video_sync);
-    } else {
+	} else {
         LOGI("audio_disabled");
     }
     if (use_video) {
