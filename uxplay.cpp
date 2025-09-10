@@ -36,26 +36,27 @@
 #include <stdarg.h>
 #include <math.h>
 
-#ifdef _WIN32  /*modifications for Windows compilation */
-#include <glib.h>
-#include <unordered_map>
-#include <winsock2.h>
-#include <iphlpapi.h>
+#ifdef _WIN32
+  #include <winsock2.h>
+  #include <ws2tcpip.h>
+  #include <iphlpapi.h>
+  #include <glib.h>
+  #include <unordered_map>
 #else
-#include <glib-unix.h>
-#include <sys/utsname.h>
-#include <sys/socket.h>
-#include <ifaddrs.h>
-#include <sys/types.h>
-#include <pwd.h>
-# ifdef __linux__
-# include <netpacket/packet.h>
-# else
-# include <net/if_dl.h>
-#  ifdef __OpenBSD__
-#  include <err.h>
-#  endif
-# endif
+  #include <glib-unix.h>
+  #include <sys/utsname.h>
+  #include <sys/socket.h>
+  #include <ifaddrs.h>
+  #include <sys/types.h>
+  #include <pwd.h>
+  #ifdef __linux__
+    #include <netpacket/packet.h>
+  #else
+    #include <net/if_dl.h>
+    #ifdef __OpenBSD__
+      #include <err.h>
+    #endif
+  #endif
 #endif
 
 #include "lib/raop.h"
@@ -84,13 +85,11 @@
   #define DEFAULT_SRGB_FIX false
 #endif
 
-// NEW! Del if broked
 #ifdef _WIN32
-#include <gst/gst.h>
+  #include <gst/gst.h>
 #endif
-static int audio_ts_offset_ms = 0;
-// END NEW
 
+static int audio_ts_offset_ms = 0;
 static std::string server_name = DEFAULT_NAME;
 static dnssd_t *dnssd = NULL;
 static raop_t *raop = NULL;
@@ -2446,28 +2445,19 @@ int main (int argc, char *argv[]) {
     if (fullscreen && use_video) {
         if (videosink == "waylandsink" || videosink == "vaapisink") {
             videosink_options.append(" fullscreen=true");
-	} else if (videosink == "kmssink") {
-           videosink_options.append(" force_modesetting=true");	  
+		} else if (videosink == "kmssink") {
+			   videosink_options.append(" force_modesetting=true");	  
+		}
+    }
+
+    // D3D11: only supports a boolean "fullscreen" property
+	if (videosink == "d3d11videosink" && use_video) {
+		if (fullscreen) {
+			// Start fullscreen
+			videosink_options.append(" fullscreen=true");
+		}
+		// (Windowed start needs no extra option; Alt+Enter handling is internal to the sink)
 	}
-    }
-
-    if (videosink == "d3d11videosink"  && videosink_options.empty() && use_video) {
-        if (fullscreen) {
-            videosink_options.append(" fullscreen-toggle-mode=GST_D3D11_WINDOW_FULLSCREEN_TOGGLE_MODE_PROPERTY fullscreen=TRUE");
-        } else {
-            videosink_options.append(" fullscreen-toggle-mode=GST_D3D11_WINDOW_FULLSCREEN_TOGGLE_MODE_ALT_ENTER ");
-            LOGI("Use Alt-Enter key combination to toggle into/out of full-screen mode");
-        }
-    }
-
-    if (videosink == "d3d12videosink"  && videosink_options.empty() && use_video) {
-        if (fullscreen) {
-            videosink_options.append("fullscreen=TRUE");
-        } else {
-            videosink_options.append(" fullscreen-on-alt-enter=TRUE ");
-            LOGI("Use Alt-Enter key combination to toggle into/out of full-screen mode");
-        }
-    } 
 
     if (bt709_fix && use_video) {
         video_parser.append(" ! ");

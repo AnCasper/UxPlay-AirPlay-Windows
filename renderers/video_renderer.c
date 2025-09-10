@@ -321,18 +321,38 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
             }
             GString *launch = g_string_new("appsrc name=video_source ! ");
 	    if (jpeg_pipeline) {
-                g_string_append(launch, "jpegdec ");
+                g_string_append(launch,
+					"queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream ! "
+					"jpegdec ! "
+					"queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream ! "
+					"identity drop-when-late=true ");
 	    } else {
-                g_string_append(launch, "queue ! ");
-                g_string_append(launch, parser);
-                g_string_append(launch, " ! ");
-                g_string_append(launch, decoder);
+                // keep only ~2 frames upstream; drop newest when downstream is behind
+				g_string_append(launch, "queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream ! ");
+				g_string_append(launch, parser);
+				g_string_append(launch, " ! ");
+				// a second tiny queue before decode to prevent decoder-side buildup
+				g_string_append(launch, "queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream ! ");
+				g_string_append(launch, decoder);
+				// drop frames that are already late before the sink
+				g_string_append(launch, " ! identity drop-when-late=true ");
             }
             g_string_append(launch, " ! ");
-            append_videoflip(launch, &videoflip[0], &videoflip[1]);
-            g_string_append(launch, converter);
-            g_string_append(launch, " ! ");
-            g_string_append(launch, "videoscale ! ");
+			append_videoflip(launch, &videoflip[0], &videoflip[1]);
+
+			/* Keep conversion+scaling on the GPU when using D3D11 sink (Windows) */
+			#ifdef _WIN32
+			if (strstr(videosink, "d3d11videosink")) {
+				/* Zero-copy path: decoder -> d3d11convert -> d3d11scale -> d3d11videosink */
+				g_string_append(launch, "d3d11convert ! d3d11scale ! ");
+			} else
+			#endif
+			{
+				/* Fallback / non-D3D11 sinks */
+				g_string_append(launch, converter);
+				g_string_append(launch, " ! ");
+				g_string_append(launch, "videoscale ! ");
+			}
             if (jpeg_pipeline) {
                 g_string_append(launch, " imagefreeze allow-replace=TRUE ! ");
             }
@@ -384,7 +404,11 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
             renderer_type[i]->appsrc = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "video_source");
             g_assert(renderer_type[i]->appsrc);
             g_object_set(renderer_type[i]->appsrc, "caps", caps, "stream-type", 0, "is-live", TRUE, "format", GST_FORMAT_TIME, NULL);
-            g_string_free(launch, TRUE);
+            g_object_set(renderer_type[i]->appsrc,
+             "block", TRUE,
+             "max-bytes", 2 * 1024 * 1024,   // ~2 MB reservoir
+             NULL);
+			g_string_free(launch, TRUE);
             gst_caps_unref(caps);
 	    gst_object_unref(clock);
         }	
