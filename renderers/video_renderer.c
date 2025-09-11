@@ -321,14 +321,14 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
             }
             GString *launch = g_string_new("appsrc name=video_source ! ");
 	    if (jpeg_pipeline) {
-				g_string_append(launch, "queue max-size-buffers=4 max-size-bytes=0 max-size-time=0 leaky=upstream ! ");
+				g_string_append(launch, "queue max-size-buffers=6 max-size-bytes=0 max-size-time=0 leaky=upstream ! ");
 				g_string_append(launch, "jpegdec ! ");
-				g_string_append(launch, "queue max-size-buffers=4 max-size-bytes=0 max-size-time=0 leaky=upstream ! ");
+				g_string_append(launch, "queue max-size-buffers=6 max-size-bytes=0 max-size-time=0 leaky=upstream ! ");
 	    } else {
-                g_string_append(launch, "queue max-size-buffers=4 max-size-bytes=0 max-size-time=0 leaky=upstream ! ");
+                g_string_append(launch, "queue max-size-buffers=6 max-size-bytes=0 max-size-time=0 leaky=upstream ! ");
 				g_string_append(launch, parser);
 				g_string_append(launch, " ! ");
-				g_string_append(launch, "queue max-size-buffers=4 max-size-bytes=0 max-size-time=0 leaky=upstream ! ");
+				g_string_append(launch, "queue max-size-buffers=6 max-size-bytes=0 max-size-time=0 leaky=upstream ! ");
 				g_string_append(launch, decoder);
 				g_string_append(launch, " ! ");
             }
@@ -419,14 +419,14 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
             GstClock *clock = gst_system_clock_obtain();
 			g_object_set(clock, "clock-type", GST_CLOCK_TYPE_MONOTONIC, NULL);
 			gst_pipeline_use_clock(GST_PIPELINE_CAST(renderer_type[i]->pipeline), clock);
-			gst_pipeline_set_latency(GST_PIPELINE_CAST(renderer_type[i]->pipeline), 5 * GST_MSECOND);
+			gst_pipeline_set_latency(GST_PIPELINE_CAST(renderer_type[i]->pipeline), 8 * GST_MSECOND);
 			gst_object_unref(clock);
             renderer_type[i]->appsrc = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "video_source");
             g_assert(renderer_type[i]->appsrc);
             g_object_set(renderer_type[i]->appsrc, "caps", caps, "stream-type", 0, "is-live", TRUE, "format", GST_FORMAT_TIME, NULL);
             g_object_set(renderer_type[i]->appsrc,
              "block", TRUE,
-             "max-bytes", 2 * 1024 * 1024,   // ~2 MB reservoir
+             "max-bytes", 4 * 1024 * 1024,   // ~4 MB reservoir
              NULL);
 			g_string_free(launch, TRUE);
             gst_caps_unref(caps);
