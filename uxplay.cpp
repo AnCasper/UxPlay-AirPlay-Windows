@@ -2442,13 +2442,26 @@ int main (int argc, char *argv[]) {
         display[3] = 1; /* set fps to 1 frame per sec when no video will be shown */
     }
 
-    if (fullscreen && use_video) {
-        if (videosink == "waylandsink" || videosink == "vaapisink") {
-            videosink_options.append(" fullscreen=true");
-		} else if (videosink == "kmssink") {
-			   videosink_options.append(" force_modesetting=true");	  
+    // D3D11: ensure fullscreen toggle property is present even if user passed options
+	if (videosink == "d3d11videosink" && use_video) {
+		bool has_toggle = (videosink_options.find("fullscreen-toggle-mode") != std::string::npos);
+		bool has_fullscreen = (videosink_options.find("fullscreen=") != std::string::npos);
+
+		if (!has_toggle) {
+			if (fullscreen) {
+				// Start fullscreen, allow toggling via property (so you can exit FS later)
+				videosink_options.append(" fullscreen-toggle-mode=GST_D3D11_WINDOW_FULLSCREEN_TOGGLE_MODE_PROPERTY");
+			} else {
+				// Start windowed; allow Alt+Enter to toggle
+				videosink_options.append(" fullscreen-toggle-mode=GST_D3D11_WINDOW_FULLSCREEN_TOGGLE_MODE_ALT_ENTER");
+				LOGI("Use Alt-Enter key combination to toggle into/out of full-screen mode");
+			}
 		}
-    }
+
+		if (fullscreen && !has_fullscreen) {
+			videosink_options.append(" fullscreen=TRUE");
+		}
+	}
 
     // D3D11: only supports a boolean "fullscreen" property
 	if (videosink == "d3d11videosink" && use_video) {

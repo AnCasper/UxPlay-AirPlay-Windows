@@ -321,47 +321,65 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
             }
             GString *launch = g_string_new("appsrc name=video_source ! ");
 	    if (jpeg_pipeline) {
-                g_string_append(launch,
-					"queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream ! "
-					"jpegdec ! "
-					"queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream ! "
-					"identity drop-when-late=true ");
+				g_string_append(launch, "queue max-size-buffers=4 max-size-bytes=0 max-size-time=0 leaky=upstream ! ");
+				g_string_append(launch, "jpegdec ! ");
+				g_string_append(launch, "queue max-size-buffers=4 max-size-bytes=0 max-size-time=0 leaky=upstream ! ");
 	    } else {
-                // keep only ~2 frames upstream; drop newest when downstream is behind
-				g_string_append(launch, "queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream ! ");
+                g_string_append(launch, "queue max-size-buffers=4 max-size-bytes=0 max-size-time=0 leaky=upstream ! ");
 				g_string_append(launch, parser);
 				g_string_append(launch, " ! ");
-				// a second tiny queue before decode to prevent decoder-side buildup
-				g_string_append(launch, "queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 leaky=downstream ! ");
+				g_string_append(launch, "queue max-size-buffers=4 max-size-bytes=0 max-size-time=0 leaky=upstream ! ");
 				g_string_append(launch, decoder);
-				// drop frames that are already late before the sink
-				g_string_append(launch, " ! identity drop-when-late=true ");
+				g_string_append(launch, " ! ");
             }
-            g_string_append(launch, " ! ");
 			append_videoflip(launch, &videoflip[0], &videoflip[1]);
 
-			/* Keep conversion+scaling on the GPU when using D3D11 sink (Windows) */
 			#ifdef _WIN32
 			if (strstr(videosink, "d3d11videosink")) {
-				/* Zero-copy path: decoder -> d3d11convert -> d3d11scale -> d3d11videosink */
+				/* keep the whole path on GPU */
 				g_string_append(launch, "d3d11convert ! d3d11scale ! ");
 			} else
 			#endif
 			{
-				/* Fallback / non-D3D11 sinks */
 				g_string_append(launch, converter);
-				g_string_append(launch, " ! ");
-				g_string_append(launch, "videoscale ! ");
+				g_string_append(launch, " ! videoscale ! ");
 			}
             if (jpeg_pipeline) {
                 g_string_append(launch, " imagefreeze allow-replace=TRUE ! ");
             }
             g_string_append(launch, videosink);
-            g_string_append(launch, " name=");
-            g_string_append(launch, videosink);
-            g_string_append(launch, "_");
-            g_string_append(launch, renderer_type[i]->codec);
-            g_string_append(launch, videosink_options);
+			g_string_append(launch, " name=");
+			g_string_append(launch, videosink);
+			g_string_append(launch, "_");
+			g_string_append(launch, renderer_type[i]->codec);
+
+			/* Append user-provided sink options first */
+			g_string_append(launch, videosink_options);
+
+			/* On Windows, add fullscreen Alt+Enter if not provided */
+			#ifdef _WIN32
+			if (strstr(videosink, "d3d11videosink")) {
+				/* Optionally add fullscreen toggle mode only if user didn't pass it */
+				if (!strstr(videosink_options, "fullscreen-toggle-mode=")) {
+					g_string_append(launch, " fullscreen-toggle-mode=GST_D3D11_WINDOW_FULLSCREEN_TOGGLE_MODE_ALT_ENTER");
+				}
+
+				/* Only add present-mode if this build supports it (guard by runtime probe) */
+				GstElement *probe = gst_element_factory_make("d3d11videosink", NULL);
+				if (probe) {
+					GObjectClass *klass = G_OBJECT_GET_CLASS(probe);
+					if (g_object_class_find_property(klass, "present-mode")) {
+						if (!strstr(videosink_options, "present-mode=") && !strstr(videosink_options, "tearing=")) {
+							g_string_append(launch, " present-mode=immediate");
+						}
+					}
+					gst_object_unref(probe);
+				}
+			}
+			#endif
+
+			/* Now append any user-provided sink options (still works as before) */
+			g_string_append(launch, videosink_options);
             if (video_sync && !jpeg_pipeline) {
                 g_string_append(launch, " sync=true");
                 sync = true;
@@ -399,8 +417,10 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
             g_assert (renderer_type[i]->pipeline);
 
             GstClock *clock = gst_system_clock_obtain();
-            g_object_set(clock, "clock-type", GST_CLOCK_TYPE_REALTIME, NULL);
-            gst_pipeline_use_clock(GST_PIPELINE_CAST(renderer_type[i]->pipeline), clock);
+			g_object_set(clock, "clock-type", GST_CLOCK_TYPE_MONOTONIC, NULL);
+			gst_pipeline_use_clock(GST_PIPELINE_CAST(renderer_type[i]->pipeline), clock);
+			gst_pipeline_set_latency(GST_PIPELINE_CAST(renderer_type[i]->pipeline), 5 * GST_MSECOND);
+			gst_object_unref(clock);
             renderer_type[i]->appsrc = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "video_source");
             g_assert(renderer_type[i]->appsrc);
             g_object_set(renderer_type[i]->appsrc, "caps", caps, "stream-type", 0, "is-live", TRUE, "format", GST_FORMAT_TIME, NULL);
