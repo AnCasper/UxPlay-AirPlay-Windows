@@ -129,7 +129,7 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
     GError *error = NULL;
     GstCaps *caps = NULL;
     GstClock *clock = gst_system_clock_obtain();
-    g_object_set(clock, "clock-type", GST_CLOCK_TYPE_REALTIME, NULL);
+	g_object_set(clock, "clock-type", GST_CLOCK_TYPE_MONOTONIC, NULL);
 
     logger = render_logger;
     
@@ -140,7 +140,7 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
         renderer_type[i] = (audio_renderer_t *)  calloc(1,sizeof(audio_renderer_t));
         g_assert(renderer_type[i]);
         GString *launch = g_string_new("appsrc name=audio_source ! ");
-        g_string_append(launch, "queue ! ");
+        g_string_append(launch, "queue max-size-buffers=3 max-size-bytes=0 max-size-time=0 leaky=downstream ! ");
         switch (i) {
         case 0:    /* AAC-ELD */
         case 2:    /* AAC-LC */
@@ -185,7 +185,7 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
         }
 
         g_assert (renderer_type[i]->pipeline);
-        gst_pipeline_use_clock(GST_PIPELINE_CAST(renderer_type[i]->pipeline), clock);
+        gst_pipeline_set_latency(GST_PIPELINE_CAST(renderer_type[i]->pipeline), 5 * GST_MSECOND);
 
         renderer_type[i]->appsrc = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "audio_source");
         renderer_type[i]->volume = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "volume");
