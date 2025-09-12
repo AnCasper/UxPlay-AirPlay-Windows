@@ -257,7 +257,6 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
         /* renderer[0]: playbin (hls) */
     } else {
         n_renderers = h265_support ? 3 : 2;
-        /* renderer[0]: jpeg; [1]: h264; [2]: h265 */
     }
     g_assert (n_renderers <= NCODECS);
     for (int i = 0; i < n_renderers; i++) {
@@ -268,7 +267,6 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
         renderer_type[i]->id = i;
         renderer_type[i]->bus = NULL;
         if (hls_video) {
-            /* use playbin3 to play HLS video: replace "playbin3" by "playbin" to use playbin2 */
             switch (playbin_version)  {
             case 2:
                 renderer_type[i]->pipeline = gst_element_factory_make("playbin", "hls-playbin2");
@@ -284,7 +282,6 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
             g_assert(renderer_type[i]->pipeline);
             renderer_type[i]->appsrc = NULL;
 	    renderer_type[i]->codec = hls;
-            /* if we are not using an autovideosink, build a videosink based on the string "videosink" */
             if (!auto_videosink) { 
                 GstElement *playbin_videosink = make_video_sink(videosink, videosink_options);  
                 if (!playbin_videosink) {
@@ -297,7 +294,7 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
             gint flags;
             g_object_get(renderer_type[i]->pipeline, "flags", &flags, NULL);
             flags |= GST_PLAY_FLAG_DOWNLOAD;
-	    flags |= GST_PLAY_FLAG_BUFFERING;    // set by default in playbin3, but not in playbin2; is it needed?
+	    flags |= GST_PLAY_FLAG_BUFFERING;
             g_object_set(renderer_type[i]->pipeline, "flags", flags, NULL);
 	    g_object_set (G_OBJECT (renderer_type[i]->pipeline), "uri", uri, NULL);
         } else {
@@ -321,10 +318,13 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
             }
             GString *launch = g_string_new("appsrc name=video_source ! ");
 	    if (jpeg_pipeline) {
-				g_string_append(launch, "queue max-size-buffers=6 max-size-bytes=0 max-size-time=0 leaky=upstream ! ");
-				g_string_append(launch, "jpegdec ! ");
-				g_string_append(launch, "queue max-size-buffers=6 max-size-bytes=0 max-size-time=0 leaky=upstream ! ");
-	    } else {
+			g_string_append(launch,
+				"queue max-size-buffers=6 max-size-bytes=0 max-size-time=0 leaky=upstream ! "
+				"jpegdec ! "
+				"imagefreeze allow-replace=TRUE ! "
+				"queue max-size-buffers=6 max-size-bytes=0 max-size-time=0 leaky=upstream ! "
+			);
+		} else {
                 g_string_append(launch, "queue max-size-buffers=6 max-size-bytes=0 max-size-time=0 leaky=upstream ! ");
 				g_string_append(launch, parser);
 				g_string_append(launch, " ! ");
@@ -336,17 +336,17 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
 
 			#ifdef _WIN32
 			if (strstr(videosink, "d3d11videosink")) {
-				/* keep the whole path on GPU */
-				g_string_append(launch, "d3d11convert ! d3d11scale ! ");
+				if (jpeg_pipeline) {
+					g_string_append(launch, "d3d11upload ! d3d11convert ! d3d11scale ! ");
+				} else {
+					g_string_append(launch, "d3d11convert ! d3d11scale ! ");
+				}
 			} else
 			#endif
 			{
 				g_string_append(launch, converter);
 				g_string_append(launch, " ! videoscale ! ");
 			}
-            if (jpeg_pipeline) {
-                g_string_append(launch, " imagefreeze allow-replace=TRUE ! ");
-            }
             g_string_append(launch, videosink);
 			g_string_append(launch, " name=");
 			g_string_append(launch, videosink);
@@ -426,11 +426,10 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
             g_object_set(renderer_type[i]->appsrc, "caps", caps, "stream-type", 0, "is-live", TRUE, "format", GST_FORMAT_TIME, NULL);
             g_object_set(renderer_type[i]->appsrc,
              "block", TRUE,
-             "max-bytes", 4 * 1024 * 1024,   // ~4 MB reservoir
+             "max-bytes", 4 * 1024 * 1024,
              NULL);
 			g_string_free(launch, TRUE);
             gst_caps_unref(caps);
-	    gst_object_unref(clock);
         }	
 #ifdef X_DISPLAY_FIX
         use_x11 = (strstr(videosink, "xvimagesink") || strstr(videosink, "ximagesink") || auto_videosink);
